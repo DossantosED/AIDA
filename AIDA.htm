@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Espectro de audio 3D</title>
+    <style>
+        body {
+            margin: 0;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+    <canvas id="canvas"></canvas>
+</body>
+
+</html>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+
+    const canvas = document.getElementById('canvas');
+    let renderer = new THREE.WebGLRenderer({ canvas });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(0xffffff);
+    const fov = 75;
+    const aspect = window.innerWidth / window.innerHeight;
+    const near = 0.1;
+    const far = 1000;
+    const camera = new THREE.PerspectiveCamera(fov, aspect, near, far);
+    camera.position.z = 5;
+
+    const scene = new THREE.Scene();
+    const circleTexture = createCircleTexture(64);
+
+    const material = new THREE.PointsMaterial({
+        color: 0xff0076,
+        size: 0.025,
+        map: circleTexture,
+        transparent: true,
+        alphaTest: 0.5,
+    });
+
+
+    const particleCount = 5000;
+    const sphereRadius = 1;
+    const sphereGeometry = new THREE.BufferGeometry();
+    const initialPositions = generateRandomPointsOnSphere(sphereRadius, particleCount);
+    const particles = new THREE.Points(sphereGeometry, material);
+    scene.add(particles);
+
+
+    function createCircleTexture(size) {
+        const canvas = document.createElement("canvas");
+        canvas.width = size;
+        canvas.height = size;
+
+        const context = canvas.getContext("2d");
+        const centerX = size / 2;
+        const centerY = size / 2;
+        const radius = size / 2;
+
+        context.beginPath();
+        context.arc(centerX, centerY, radius, 0, 2 * Math.PI, false);
+        context.fillStyle = "#FFFFFF";
+        context.fill();
+
+        return new THREE.CanvasTexture(canvas);
+    }
+
+    function generateRandomPointsOnSphere(radius, count) {
+        const positions = new Float32Array(count * 3);
+
+        for (let i = 0; i < count; i++) {
+            const sphericalCoords = new THREE.Spherical(
+                radius,
+                Math.acos(2 * Math.random() - 1),
+                2 * Math.PI * Math.random()
+            );
+
+            const vertex = new THREE.Vector3();
+            vertex.setFromSpherical(sphericalCoords);
+
+            positions[i * 3] = vertex.x;
+            positions[i * 3 + 1] = vertex.y;
+            positions[i * 3 + 2] = vertex.z;
+        }
+
+        return positions;
+    }
+
+    sphereGeometry.setAttribute('position', new THREE.BufferAttribute(initialPositions, 3));
+    const frequencyData = new Uint8Array(256);
+    let particleVelocities = new Float32Array(particleCount * 3);
+
+    function gaussian(x, mean, sigma) {
+        const coefficient = 1.0 / (sigma * Math.sqrt(2 * Math.PI));
+        const exponent = -Math.pow(x - mean, 2) / (2 * Math.pow(sigma, 2));
+        return coefficient * Math.exp(exponent);
+    }
+
+    particleVelocities = new Float32Array(particleCount * 3);
+    for (let i = 0; i < particleCount; i++) {
+        particleVelocities[i * 3] = Math.random() * 0.01 - 0.005;
+        particleVelocities[i * 3 + 1] = Math.random() * 0.01 - 0.005;
+        particleVelocities[i * 3 + 2] = Math.random() * 0.01 - 0.005;
+    }
+
+    function bounceParticles() {
+        const positions = sphereGeometry.attributes.position.array;
+        const k = 1; // Coeficiente de restitución
+        const tolerance = 0.1; // Tolerancia para la colisión con la superficie
+
+        for (let i = 0; i < particleCount; i++) {
+            const initialVertex = new THREE.Vector3(
+                initialPositions[i * 3],
+                initialPositions[i * 3 + 1],
+                initialPositions[i * 3 + 2]
+            );
+
+            const vertex = new THREE.Vector3(
+                positions[i * 3],
+                positions[i * 3 + 1],
+                positions[i * 3 + 2]
+            );
+
+            const velocity = new THREE.Vector3(
+                particleVelocities[i * 3],
+                particleVelocities[i * 3 + 1],
+                particleVelocities[i * 3 + 2]
+            );
+
+            // Verificar si la partícula está en la superficie
+            if (Math.abs(initialVertex.length() - sphereRadius) > 0.01) {
+                continue; // No mover las partículas en la superficie
+            }
+
+            vertex.add(velocity);
+
+            if (vertex.length() >= sphereRadius - tolerance) {
+                // Rebotar la partícula
+                const normal = vertex.clone().normalize();
+                velocity.reflect(normal).multiplyScalar(k);
+                vertex.normalize().multiplyScalar(sphereRadius);
+                // Actualizar la velocidad de la partícula
+                particleVelocities[i * 3] = velocity.x;
+                particleVelocities[i * 3 + 1] = velocity.y;
+                particleVelocities[i * 3 + 2] = velocity.z;
+            }
+
+            positions[i * 3] = vertex.x;
+            positions[i * 3 + 1] = vertex.y;
+            positions[i * 3 + 2] = vertex.z;
+        }
+    }
+
+    let wordIndex = 0;
+    let animationFrameId = null;
+
+    localStorage.setItem('texto', '')
+
+    let initialAnimation = true;
+    let speakAnimation = false;
+
+    function animate() {
+        let textWords = "";
+        requestAnimationFrame(animate);
+        if (speakAnimation) {
+            textWords = localStorage.getItem('texto').split(" ");
+            const wordsPerMinute = 150;
+            const wordsPerSecond = wordsPerMinute / 120;
+            const wordsPerFrame = wordsPerSecond / 120; // Asumiendo 60 FPS
+            wordIndex += wordsPerFrame;
+            wordIndex %= textWords.length;
+
+            const currentWord = textWords[Math.floor(wordIndex)];
+            const currentWordLength = currentWord.length;
+            const frequencyFactor = currentWordLength;
+
+            const wordPosition = wordIndex / textWords.length;
+            const baseFrequencyIndex = Math.floor(wordPosition * frequencyData.length);
+
+            const range = 50;
+            const sigma = range / 3;
+
+            for (let i = 0; i < frequencyData.length; i++) {
+                const factor = gaussian(i, baseFrequencyIndex, sigma);
+                frequencyData[i] = Math.floor(factor * 255);
+            }
+
+            const positions = sphereGeometry.attributes.position.array;
+
+            const progressInWord = wordIndex % 0.2;
+            const scaleFactor = 0.1 * Math.sin(progressInWord * Math.PI * 2 * frequencyFactor) + 1;
+
+            for (let i = 0; i < particleCount; i++) {
+                const vertex = new THREE.Vector3(
+                    initialPositions[i * 3],
+                    initialPositions[i * 3 + 1],
+                    initialPositions[i * 3 + 2]
+                );
+
+                const scaledVertex = vertex.normalize().multiplyScalar(sphereRadius * scaleFactor);
+
+                positions[i * 3] = scaledVertex.x;
+                positions[i * 3 + 1] = scaledVertex.y;
+                positions[i * 3 + 2] = scaledVertex.z;
+            }
+        } else if (initialAnimation) {
+            bounceParticles();
+        }
+        sphereGeometry.attributes.position.needsUpdate = true;
+        renderer.render(scene, camera);
+    }
+
+    // Iniciar la animación
+    animate();
+    window.addEventListener('resize', () => {
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+    });
+
+    let synth = window.speechSynthesis;
+    function speak(text_v, voice) {
+        return new Promise((resolve) => {
+            const utterance = new SpeechSynthesisUtterance(text_v);
+            utterance.voice = voice;
+            utterance.onend = () => {
+                resolve();
+            };
+            synth.speak(utterance);
+        });
+    }
+
+    async function playAnimationWithSpeech(text_v) {
+        var voices = synth.getVoices();
+        await speak(text_v, voices[248]);
+        localStorage.setItem('texto', '')
+        setTimeout(() => {
+            initialAnimation = true;
+            speakAnimation = false;
+        }, 500);
+    }
+
+    async function consumeAPI(peticion) {
+        const response = await fetch('http://localhost:5000/get_response', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ peticion }),
+        })
+        const data = await response.json();
+        console.log(data)
+        playAnimationWithSpeech(data.message);
+        setTimeout(() => {
+            localStorage.setItem('texto', data.message)
+            initialAnimation = false;
+            speakAnimation = true;
+        }, 1000);
+    }
+
+    const transcriptElement = document.createElement('transcript');
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    const keywordRecognition = new SpeechRecognition();
+    keywordRecognition.lang = 'es-ES';
+    keywordRecognition.interimResults = true;
+
+    const requestRecognition = new SpeechRecognition();
+    requestRecognition.lang = 'es-ES';
+    requestRecognition.interimResults = true;
+
+    const keyword = 'oye siri';
+    let listeningForRequest = false;
+
+    keywordRecognition.addEventListener('result', (event) => {
+        const transcript = Array.from(event.results)
+            .map((result) => result[0])
+            .map((result) => result.transcript)
+            .join('');
+
+        if (transcript.toLowerCase().includes(keyword.toLowerCase()) && !listeningForRequest) {
+            console.log('Palabra clave detectada:', keyword);
+            keywordRecognition.stop();
+            listeningForRequest = true;
+            speak("¿En qué puedo ayudarte?", () => {
+                keywordRecognition.abort();
+                requestRecognition.start();
+            });
+        }
+    });
+    requestRecognition.addEventListener('result', (event) => {
+        const transcript = Array.from(event.results)
+            .map((result) => result[0])
+            .map((result) => result.transcript)
+            .join('');
+
+        if (event.results[event.results.length - 1].isFinal) {
+            transcriptElement.textContent = transcript;
+            console.log('Petición del usuario:', transcript);
+            requestRecognition.stop();
+            listeningForRequest = false;
+            setTimeout(() => {
+                keywordRecognition.start(); // Vuelve a la detección de palabras clave
+            }, 500);
+        }
+    });
+
+    requestRecognition.addEventListener('end', () => {
+        if (listeningForRequest) {
+            requestRecognition.start(); // Reinicia la captura de la petición del usuario
+        }
+    });
+
+    function speak(text, callback) {
+        const speech = new SpeechSynthesisUtterance(text);
+        speech.lang = 'es-ES';
+        speech.onend = () => {
+            if (typeof callback === 'function') {
+                callback();
+            }
+        };
+
+        window.speechSynthesis.speak(speech);
+    }
+
+    // Inicia el reconocimiento de voz automáticamente al cargar la página
+    window.addEventListener('load', () => {
+        keywordRecognition.start();
+    });
+
+</script>

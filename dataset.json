@@ -1,0 +1,24 @@
+{
+    "patrones": [
+        {
+            "pregunta": "aida",
+            "respuesta": "¿ Si, en que puedo ayudarte ?"
+        },
+        {
+            "pregunta": "Cuál es tu nombre como te llamas quien eres",
+            "respuesta": "Me llamo AIDA y soy ty asustente virtual."
+        },
+        {
+            "pregunta": "hola Hola buen dia",
+            "respuesta": "Hola que tal."
+        },
+        {
+            "pregunta": "ejecuta google chrome abre google abrir google chrome",
+            "respuesta": "Abriendo Chrome!"
+        },
+        {
+            "pregunta": "pone escuchar musica spotify por favor reproducir música",
+            "respuesta": "Abriendo Spotify!"
+        }
+    ]
+}
